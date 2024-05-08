@@ -7,7 +7,6 @@ import uuid
 
 import gymnasium as gym
 import numpy as np
-import stable_baselines3 as sb3
 import torch as th
 from stable_baselines3.common.utils import set_random_seed
 
@@ -15,9 +14,10 @@ from stable_baselines3.common.utils import set_random_seed
 import rl_zoo3.import_envs  # noqa: F401
 from rl_zoo3.exp_manager import ExperimentManager
 from rl_zoo3.utils import ALGOS, StoreDict
+import rl_zoo3.tracking as track
 
 
-def train() -> None:
+def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--algo", help="RL Algorithm", default="ppo", type=str, required=False, choices=list(ALGOS.keys()))
     parser.add_argument("--env", type=str, default="CartPole-v1", help="environment ID")
@@ -139,14 +139,6 @@ def train() -> None:
     )
     parser.add_argument("-uuid", "--uuid", action="store_true", default=False, help="Ensure that the run has a unique ID")
     parser.add_argument(
-        "--track",
-        action="store_true",
-        default=False,
-        help="if toggled, this experiment will be tracked with Weights and Biases",
-    )
-    parser.add_argument("--wandb-project-name", type=str, default="sb3", help="the wandb's project name")
-    parser.add_argument("--wandb-entity", type=str, default=None, help="the entity (team) of wandb's project")
-    parser.add_argument(
         "-P",
         "--progress",
         action="store_true",
@@ -154,10 +146,19 @@ def train() -> None:
         help="if toggled, display a progress bar using tqdm and rich",
     )
     parser.add_argument(
-        "-tags", "--wandb-tags", type=str, default=[], nargs="+", help="Tags for wandb run, e.g.: -tags optimized pr-123"
+        "--track",
+        action="store_true",
+        default=False,
+        help="if toggled, this experiment will be tracked with external ML platform",
     )
+    track.argparse_add_track_arguments(parser)
+    parsed_args = parser.parse_args()
+    track.argparse_filter_track_arguments(parsed_args)
+    return parsed_args
 
-    args = parser.parse_args()
+
+def train() -> None:
+    args = parse_args()
 
     # Going through custom gym packages to let them register in the global registry
     for env_module in args.gym_packages:
@@ -196,27 +197,13 @@ def train() -> None:
     print("=" * 10, env_id, "=" * 10)
     print(f"Seed: {args.seed}")
 
+    sb3_logger = None
     if args.track:
-        try:
-            import wandb
-        except ImportError as e:
-            raise ImportError(
-                "if you want to use Weights & Biases to track experiment, please install W&B via `pip install wandb`"
-            ) from e
-
-        run_name = f"{args.env}__{args.algo}__{args.seed}__{int(time.time())}"
-        tags = [*args.wandb_tags, f"v{sb3.__version__}"]
-        run = wandb.init(
-            name=run_name,
-            project=args.wandb_project_name,
-            entity=args.wandb_entity,
-            tags=tags,
-            config=vars(args),
-            sync_tensorboard=True,  # auto-upload sb3's tensorboard metrics
-            monitor_gym=True,  # auto-upload the videos of agents playing the game
-            save_code=True,  # optional
-        )
-        args.tensorboard_log = f"runs/{run_name}"
+        tracker = track.TrackingBackend.get_tracker(args.track_backend)
+        args.run_name = f"{args.env}__{args.algo}__{args.seed}__{int(time.time())}"
+        args.tensorboard_log = f"runs/{args.run_name}"
+        tracker.setup_tracking(args)
+        sb3_logger = tracker.get_sb3_logger(verbose=False)
 
     exp_manager = ExperimentManager(
         args,
@@ -255,6 +242,7 @@ def train() -> None:
         device=args.device,
         config=args.conf_file,
         show_progress=args.progress,
+        logger=sb3_logger,
     )
 
     # Prepare experiment and launch hyperparameter optimization if needed
@@ -264,8 +252,7 @@ def train() -> None:
         if args.track:
             # we need to save the loaded hyperparameters
             args.saved_hyperparams = saved_hyperparams
-            assert run is not None  # make mypy happy
-            run.config.setdefaults(vars(args))
+            tracker.log_params(args)
 
         # Normal training
         if model is not None:
@@ -273,6 +260,9 @@ def train() -> None:
             exp_manager.save_trained_model(model)
     else:
         exp_manager.hyperparameters_optimization()
+
+    tracker.log_directory(exp_manager.save_path)
+    tracker.finish_tracking()
 
 
 if __name__ == "__main__":
