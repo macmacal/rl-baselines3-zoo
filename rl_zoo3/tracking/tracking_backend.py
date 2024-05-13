@@ -93,9 +93,7 @@ class TrackingBackend(ABC):
 
     def log_params(self, params: Dict | Any) -> None:
         if not self.is_initalized():
-            logger.warning(
-                f"WARNING: Tried to log paramaters without initialization of the tracking backend! Call ignored."
-            )
+            logger.warning(f"WARNING: Tried to log paramaters without initialization of the tracking backend! Call ignored.")
             return
 
         params_dict = params
@@ -106,9 +104,7 @@ class TrackingBackend(ABC):
 
     def log_directory(self, local_dir: str, artifacts_dir: str = None) -> None:
         if not self.is_initalized():
-            logger.warning(
-                f"WARNING: Tried to log directory without initialization of the tracking backend! Call ignored."
-            )
+            logger.warning(f"WARNING: Tried to log directory without initialization of the tracking backend! Call ignored.")
             return
         self._log_directory(local_dir=local_dir, artifacts_dir=artifacts_dir)
 
