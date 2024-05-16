@@ -22,7 +22,7 @@ class TruncatedOnSuccessWrapper(gym.Wrapper):
 
     def reset(self, seed: Optional[int] = None, options: Optional[dict] = None) -> GymResetReturn:
         self.current_successes = 0
-        assert options is None, "Options not supported for now"
+        assert options is None, "Options are not supported for now"
         return self.env.reset(seed=seed)
 
     def step(self, action) -> GymStepReturn:
@@ -80,7 +80,7 @@ class ActionSmoothingWrapper(gym.Wrapper):
 
     def reset(self, seed: Optional[int] = None, options: Optional[dict] = None) -> GymResetReturn:
         self.smoothed_action = None
-        assert options is None, "Options not supported for now"
+        assert options is None, "Options are not supported for now"
         return self.env.reset(seed=seed)
 
     def step(self, action) -> GymStepReturn:
@@ -109,7 +109,7 @@ class DelayedRewardWrapper(gym.Wrapper):
     def reset(self, seed: Optional[int] = None, options: Optional[dict] = None) -> GymResetReturn:
         self.current_step = 0
         self.accumulated_reward = 0.0
-        assert options is None, "Options not supported for now"
+        assert options is None, "Options are not supported for now"
         return self.env.reset(seed=seed)
 
     def step(self, action) -> GymStepReturn:
@@ -169,7 +169,7 @@ class HistoryWrapper(gym.Wrapper[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
         # Flush the history
         self.obs_history[...] = 0
         self.action_history[...] = 0
-        assert options is None, "Options not supported for now"
+        assert options is None, "Options are not supported for now"
         obs, info = self.env.reset(seed=seed)
         self.obs_history[..., -obs.shape[-1] :] = obs
         return self._create_obs_from_history(), info
@@ -234,7 +234,7 @@ class HistoryWrapperObsDict(gym.Wrapper):
         # Flush the history
         self.obs_history[...] = 0
         self.action_history[...] = 0
-        assert options is None, "Options not supported for now"
+        assert options is None, "Options are not supported for now"
         obs_dict, info = self.env.reset(seed=seed)
         obs = obs_dict["observation"]
         self.obs_history[..., -obs.shape[-1] :] = obs
@@ -323,3 +323,50 @@ class MaskVelocityWrapper(gym.ObservationWrapper):
 
     def observation(self, observation: np.ndarray) -> np.ndarray:
         return observation * self.mask
+
+
+class VisualRenderObsWrapper(gym.Wrapper):
+    """
+    Render current state as visual RGB (y, x, 3) frame and pass it as the observation.
+    Requires the "rgb_array" render mode for the environment.
+
+    Please note that this behaviour is different from the HumanRendering wrapper from the Gymnasium.
+    https://gymnasium.farama.org/_modules/gymnasium/wrappers/human_rendering/#HumanRendering
+
+    When using the ResizeObservation wrapper from Gymnasium,
+    double check the order of the axes (i.e. use (y, x), NOT (x, y)).
+
+    :param env: the gym environment
+    """
+
+    def __init__(self, env: gym.Env):
+
+        assert "rgb_array" in env.metadata["render_modes"], f"The environment doesn't support 'rgb_array' render mode."
+
+        super().__init__(env)
+        assert env.render_mode == "rgb_array", (
+            f"Expected env.render_mode to 'rgb_array' but got '{env.render_mode}'."
+            "Consider passing `--env-kwargs render_mode:\"'rgb_array'\"` as launch argument."
+        )
+
+        # There is no guaranteed API to obtain the default size of the frame.
+        env.reset()
+        image_shape = np.shape(env.render())
+
+        # Set an auxiliary observation space for the RGB array
+        self._observation_space = spaces.Box(low=0, high=255, shape=image_shape, dtype=np.uint8)
+
+    @property
+    def observation_space(self):
+        return self._observation_space
+
+    def reset(self, seed: Optional[int] = None, options: Optional[dict] = None) -> GymResetReturn:
+        assert options is None, "Options are not supported for now"
+        _, info = self.env.reset(seed=seed)
+        obs_render = self.env.render()
+        return obs_render, info
+
+    def step(self, action) -> GymStepReturn:
+        _, reward, terminated, truncated, info = self.env.step(action)
+        obs_render = self.env.render()
+        return obs_render, reward, terminated, truncated, info
