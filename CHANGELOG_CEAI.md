@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- [PR#3](https://github.com/AGH-CEAI/rl-baselines3-zoo/pull/3) Loading pre-trained torchvision models as feature extractors.
 - [PR#2](https://github.com/AGH-CEAI/rl-baselines3-zoo/pull/2) Changing the env observation to the rgb_array type with VisualRenderObsWrapper.
 - [PR#1](https://github.com/AGH-CEAI/rl-baselines3-zoo/pull/1) Tracking with MLflow.
 - [PR#1](https://github.com/AGH-CEAI/rl-baselines3-zoo/pull/1) Logging git repositories hashes and preventing uncommitted changes.
