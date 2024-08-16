@@ -1,7 +1,11 @@
-from typing import Any, ClassVar, Dict, Optional, SupportsFloat, Tuple
+from typing import Any, ClassVar, Dict, Optional, SupportsFloat, Tuple, Type
+from collections import OrderedDict
 
+import torch as th
+import torch.nn as nn
 import gymnasium as gym
 import numpy as np
+
 from gymnasium import spaces
 from gymnasium.core import ObsType
 from sb3_contrib.common.wrappers import TimeFeatureWrapper  # noqa: F401 (backward compatibility)
@@ -370,3 +374,131 @@ class VisualRenderObsWrapper(gym.Wrapper):
         _, reward, terminated, truncated, info = self.env.step(action)
         obs_render = self.env.render()
         return obs_render, reward, terminated, truncated, info
+
+
+class PreTrainedVisionExtractorWrapper(gym.Wrapper):
+    """
+    Pass the visual observation to a pre-trained feature extractor from the torchvision model lists.
+    The list: https://pytorch.org/vision/main/models.html .
+
+    :param env: the gym environment
+    :param model_name: the name of the model in the PascalCase format.
+    :param weights_id: the name of the trained weights (torchvision API).
+    :param cut_on_layer: the name of the layer to cut the head from the backbone.
+    :param use_gpu: the bool for enabling usage of torch cuda device, enabled by default
+    :param result_device: specificies the device for the processed observation (defaults to cpu)
+    """
+
+    # TODO unify code parts with the feature_extractors
+
+    def __init__(
+        self,
+        env: gym.Env,
+        model_name: str = None,
+        weights_id: str | None = None,
+        cut_on_layer: str = None,
+        use_gpu: bool = True,
+        result_device: str = "cpu",
+    ):
+        super().__init__(env)
+        self._import_torchvision()
+        # TODO take this as parameter from global config
+        self._th_device = th.device("cuda") if use_gpu else th.device("cpu")
+
+        self._model_name = model_name
+        self._weights_id = weights_id
+        self._cut_on_layer = cut_on_layer
+        self._result_device = result_device
+
+        self._fe_model = self._prepare_feature_extractor()
+        self._update_observation_space()
+
+    def _import_torchvision(self):
+        try:
+            self._thvision = __import__("torchvision")
+        except ImportError:
+            raise ImportError(
+                "Can't use PreTrainedVisionExtractorWrapper without torchvision. Please install it (`pip install torchvision`)."
+            )
+        self._transform_img_to_tensor = self._thvision.transforms.ToTensor()
+
+    def _prepare_feature_extractor(self) -> nn.Module:
+        pretrained_model = self._load_vision_model(self._model_name, self._weights_id)
+        model = self._cut_head_layers(pretrained_model, self._cut_on_layer)
+        return model.to(self._th_device)
+
+    def _load_vision_model(self, model_name: str, weights_id: str | None = None) -> nn.Module:
+        try:
+            weights = weights_id if weights_id is None else self._thvision.models.get_weight(weights_id)
+            model = self._thvision.models.get_model(model_name, weights=weights)
+
+            # TODO add feature to unfreeze speecific layers
+            for param in model.parameters():
+                param.requires_grad = False
+
+            return model
+        except ValueError as e:
+            raise ValueError(
+                f"{e}.\nFailed to load the '{model_name}' model with '{weights_id}' weights. Ensure that the name is in "
+                f"the PascalCase format and it is listed in https://pytorch.org/vision/main/models.html."
+            )
+
+    def _cut_head_layers(self, model: nn.Module, cut_layer: str) -> nn.Module:
+        layers = OrderedDict()
+
+        for layer_name, layer in model.named_children():
+            if layer_name == cut_layer:
+                break
+            layers[layer_name] = layer
+
+        return nn.Sequential(layers)
+
+    def _update_observation_space(self) -> None:
+        # TODO improve obtaining an example observation
+        vis_obs, _ = self.env.reset()
+        vis_obs_t = self._img_to_tensor(vis_obs)
+        res = self._fe_model(vis_obs_t).flatten()
+        self.observation_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=res.size(), dtype=np.float32)
+
+    def _img_to_tensor(self, img: np.ndarray) -> th.Tensor:
+        # Takes HxWxC as input, returnts BxCxHxW
+        tensor = self._transform_img_to_tensor(img).unsqueeze(0)
+        return tensor.to(self._th_device)
+
+    def reset(self, seed: Optional[int] = None) -> GymResetReturn:
+        vis_obs, info = self.env.reset(seed=seed)
+        vis_obs_t = self._img_to_tensor(vis_obs)
+        fe_obs = self._fe_model(vis_obs_t).flatten().to(self._result_device)
+        return fe_obs, info
+
+    def step(self, action) -> GymStepReturn:
+        vis_obs, reward, terminated, truncated, info = self.env.step(action)
+        vis_obs_t = self._img_to_tensor(vis_obs)
+        result = self._fe_model(vis_obs_t).flatten().to(self._result_device)
+        return result, reward, terminated, truncated, info
+
+
+class ObsToDevice(gym.Wrapper):
+    """
+    Sends a torch tensor observation to the specified torch device
+
+    :param env: the gym environment
+    :param device: the torch device
+    """
+
+    def __init__(
+        self,
+        env: gym.Env,
+        device: str = None,
+    ):
+        super().__init__(env)
+        assert device is not None, "Please provide torch device name (e.x. 'cpu' or 'cuda')"
+        self._device = th.device(device)
+
+    def reset(self, seed: Optional[int] = None) -> GymResetReturn:
+        obs_th, info = self.env.reset(seed=seed)
+        return obs_th.to(self._device), info
+
+    def step(self, action) -> GymStepReturn:
+        obs_th, reward, terminated, truncated, info = self.env.step(action)
+        return obs_th.to(self._device), reward, terminated, truncated, info
