@@ -25,16 +25,16 @@ def sample_ppo_params(trial: optuna.Trial, n_actions: int, n_envs: int, addition
     gae_lambda = trial.suggest_categorical("gae_lambda", [0.8, 0.9, 0.92, 0.95, 0.98, 0.99, 1.0])
     max_grad_norm = trial.suggest_categorical("max_grad_norm", [0.3, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 2, 5])
     vf_coef = trial.suggest_float("vf_coef", 0, 1)
-    net_arch_type = trial.suggest_categorical("net_arch", ["tiny", "small", "medium"])
+    net_arch_type = trial.suggest_categorical("net_arch", ["tiny", "small", "smaller_medium", "medium"])
     # Uncomment for gSDE (continuous actions)
-    # log_std_init = trial.suggest_float("log_std_init", -4, 1)
+    log_std_init = trial.suggest_float("log_std_init", -4, 1)
     # Uncomment for gSDE (continuous action)
-    # sde_sample_freq = trial.suggest_categorical("sde_sample_freq", [-1, 8, 16, 32, 64, 128, 256])
+    sde_sample_freq = trial.suggest_categorical("sde_sample_freq", [-1, 8, 16, 32, 64, 128, 256])
     # Orthogonal initialization
     ortho_init = False
     # ortho_init = trial.suggest_categorical('ortho_init', [False, True])
     # activation_fn = trial.suggest_categorical('activation_fn', ['tanh', 'relu', 'elu', 'leaky_relu'])
-    activation_fn_name = trial.suggest_categorical("activation_fn", ["tanh", "relu"])
+    activation_fn_name = trial.suggest_categorical("activation_fn", ["tanh", "relu", "gelu"])
     # lr_schedule = "constant"
     # Uncomment to enable learning rate schedule
     # lr_schedule = trial.suggest_categorical('lr_schedule', ['linear', 'constant'])
@@ -47,13 +47,23 @@ def sample_ppo_params(trial: optuna.Trial, n_actions: int, n_envs: int, addition
 
     # Independent networks usually work best
     # when not working with images
+    # net_arch = {
+    #     "tiny": dict(pi=[64], vf=[64]),
+    #     "small": dict(pi=[64, 64], vf=[64, 64]),
+    #     "smaller_medium": dict(pi=[128, 128], vf=[128, 128]),
+    #     "medium": dict(pi=[256, 256], vf=[256, 256]),
+    # }[net_arch_type]
+    
+    # So lets try to merge networks to work with images!
     net_arch = {
-        "tiny": dict(pi=[64], vf=[64]),
-        "small": dict(pi=[64, 64], vf=[64, 64]),
-        "medium": dict(pi=[256, 256], vf=[256, 256]),
+        "tiny": [64],
+        "small": [64, 64],
+        "smaller_medium": [128, 128],
+        "medium": [256, 256],
     }[net_arch_type]
+    
 
-    activation_fn = {"tanh": nn.Tanh, "relu": nn.ReLU, "elu": nn.ELU, "leaky_relu": nn.LeakyReLU}[activation_fn_name]
+    activation_fn = {"tanh": nn.Tanh, "relu": nn.ReLU, "elu": nn.ELU, "leaky_relu": nn.LeakyReLU, "gelu": nn.GELU}[activation_fn_name]
 
     return {
         "n_steps": n_steps,
@@ -66,7 +76,7 @@ def sample_ppo_params(trial: optuna.Trial, n_actions: int, n_envs: int, addition
         "gae_lambda": gae_lambda,
         "max_grad_norm": max_grad_norm,
         "vf_coef": vf_coef,
-        # "sde_sample_freq": sde_sample_freq,
+        "sde_sample_freq": sde_sample_freq,
         "policy_kwargs": dict(
             # log_std_init=log_std_init,
             net_arch=net_arch,
