@@ -147,6 +147,12 @@ def parse_args():
         help="if toggled, display a progress bar using tqdm and rich",
     )
     parser.add_argument(
+        "--disable-hyperopt-plots",
+        help="Disable plotly to show interactive plots of the hyperoptimization process & params imporatnce.",
+        action="store_false",
+        default=True,
+    )
+    parser.add_argument(
         "--track",
         action="store_true",
         default=False,
@@ -244,6 +250,7 @@ def train() -> None:
         config=args.conf_file,
         show_progress=args.progress,
         logger=sb3_logger,
+        enable_hyperopt_plots=args.disable_hyperopt_plots,
     )
 
     # Prepare experiment and launch hyperparameter optimization if needed
