@@ -101,6 +101,7 @@ class ExperimentManager:
         config: Optional[str] = None,
         show_progress: bool = False,
         logger: Logger = None,
+        enable_hyperopt_plots: bool = True,
     ):
         super().__init__()
         self.algo = algo
@@ -181,6 +182,7 @@ class ExperimentManager:
                 folder=None,
                 output_formats=[HumanOutputFormat(sys.stdout)],
             )
+        self.enable_hyperopt_plots = enable_hyperopt_plots
 
         self.log_path = f"{log_folder}/{self.algo}/"
         self.save_path = os.path.join(
@@ -918,6 +920,10 @@ class ExperimentManager:
             return
 
         # Plot optimization result
+        if not self.enable_hyperopt_plots:
+            print(f"Skipping plotting the hyperoptimization history and param impotrances.")
+            return
+
         try:
             fig1 = plot_optimization_history(study)
             fig2 = plot_param_importances(study)
