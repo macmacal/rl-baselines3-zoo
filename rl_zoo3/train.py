@@ -269,8 +269,9 @@ def train() -> None:
     else:
         exp_manager.hyperparameters_optimization()
 
-    tracker.log_directory(exp_manager.save_path)
-    tracker.finish_tracking()
+    if args.track:
+        tracker.log_directory(exp_manager.save_path)
+        tracker.finish_tracking()
 
 
 if __name__ == "__main__":
